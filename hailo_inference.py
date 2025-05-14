@@ -10,7 +10,7 @@ import cv2
 import time
 import hailo
 
-# 변경된 모듈 경로
+
 from hailo_apps_infra.utils.parse_args import get_default_parser
 from hailo_apps_infra.gst.common.pipeline_elements import (
     SOURCE_PIPELINE,
