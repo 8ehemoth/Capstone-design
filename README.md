@@ -36,7 +36,7 @@ rpicam-hello -t 0 --post-process-file ~/rpicam-apps/assets/hailo_yolov8_inferenc
 cd hailo-rpi5-examples
 source setup_env.sh
 
-헤일로 예제 실행(우리가 학습시킨 모)
+==헤일로 예제 실행(우리가 학습시킨 모델)==
 python3 basic_pipelines/detection.py --labels-json resources/eyes-labels.json --hef-path /usr/share/hailo-models/eyes.hef --input rpi
 
 20250122수 프레임 30으로 매우 빠르게 실시간 탐지가 가능. 허나 눈이 바운딩 박스로 탐지가 되지만, bicycle이라고 클래스가 잡히는 오류와, close 부분이 아예 탐지되지 않는 오류가 발생함.
