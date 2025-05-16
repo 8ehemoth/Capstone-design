@@ -40,47 +40,56 @@ def app_callback(pad, info, user_data):
     roi = hailo.get_roi_from_buffer(buffer)
     detections = roi.get_objects_typed(hailo.HAILO_DETECTION)
 
-    # 'close' 탐지 여부 확인
-    close_detected = any(det.get_label() == "close" for det in detections)
+    labels = [det.get_label() for det in detections]
+    close_detected = "close" in labels
+    open_detected = "open" in labels
 
     now = time.time()
     should_trigger = False
+    should_cancel = False
 
+    # close 처리
     if close_detected:
         if user_data.close_detected_time is None:
             user_data.close_detected_time = now
+        else:
+            elapsed = now - user_data.close_detected_time
+            if elapsed >= 2.0:
+                should_trigger = True
     else:
         user_data.close_detected_time = None
 
-    if user_data.close_detected_time:
-        elapsed = now - user_data.close_detected_time
-        if elapsed >= 2.0:
-            should_trigger = True
+    # open 처리: 즉시 해제
+    if open_detected:
+        should_cancel = True
 
-    # 4. 아두이노 제어 명령 전송
+    # 아두이노로 전송
     try:
-        if should_trigger:
-            arduino.write(b'1')
-            print("[알람] 'close'가 2초 이상 → '1' 전송")
-        else:
+        if should_cancel:
             arduino.write(b'0')
+            print("[알람 해제] 'open' 감지됨 → '0' 전송")
+        elif should_trigger:
+            arduino.write(b'1')
+            print("[알람] 'close' 2초 이상 → '1' 전송")
+        else:
+            arduino.write(b'0')  # fallback off
     except Exception as e:
         print("[Serial] 아두이노 전송 오류:", e)
 
-    # 5. 디버깅용 프레임 정보 표시
+    # 디버깅 텍스트
     if user_data.use_frame and frame is not None:
-        cv2.putText(frame, f"Close: {close_detected}", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+        cv2.putText(frame, f"Labels: {', '.join(labels)}", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         if user_data.close_detected_time:
             dur = now - user_data.close_detected_time
-            cv2.putText(frame, f"Duration: {dur:.1f}s", (10, 60),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+            cv2.putText(frame, f"Close Duration: {dur:.1f}s", (10, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         user_data.set_frame(frame)
 
     return Gst.PadProbeReturn.OK
 
-# 6. 앱 실행
+# 4. 앱 실행
 if __name__ == "__main__":
     user_data = user_app_callback_class()
     app = GStreamerDetectionApp(app_callback, user_data)
