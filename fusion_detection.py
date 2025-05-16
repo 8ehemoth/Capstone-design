@@ -23,7 +23,6 @@ time.sleep(2)
 class user_app_callback_class(app_callback_class):
     def __init__(self):
         super().__init__()
-        self.close_detected_time = None
 
 # 3. GStreamer 콜백 함수
 def app_callback(pad, info, user_data):
@@ -39,40 +38,21 @@ def app_callback(pad, info, user_data):
 
     roi = hailo.get_roi_from_buffer(buffer)
     detections = roi.get_objects_typed(hailo.HAILO_DETECTION)
-
     labels = [det.get_label() for det in detections]
+
     close_detected = "close" in labels
     open_detected = "open" in labels
 
-    now = time.time()
-    should_trigger = False
-    should_cancel = False
-
-    # close 처리
-    if close_detected:
-        if user_data.close_detected_time is None:
-            user_data.close_detected_time = now
-        else:
-            elapsed = now - user_data.close_detected_time
-            if elapsed >= 2.0:
-                should_trigger = True
-    else:
-        user_data.close_detected_time = None
-
-    # open 처리: 즉시 해제
-    if open_detected:
-        should_cancel = True
-
     # 아두이노로 전송
     try:
-        if should_cancel:
-            arduino.write(b'0')
-            print("[알람 해제] 'open' 감지됨 → '0' 전송")
-        elif should_trigger:
+        if close_detected:
             arduino.write(b'1')
-            print("[알람] 'close' 2초 이상 → '1' 전송")
+            print("[알람] 'close' 감지 → '1' 전송")
+        elif open_detected:
+            arduino.write(b'0')
+            print("[해제] 'open' 감지 → '0' 전송")
         else:
-            arduino.write(b'0')  # fallback off
+            arduino.write(b'0')
     except Exception as e:
         print("[Serial] 아두이노 전송 오류:", e)
 
@@ -80,10 +60,6 @@ def app_callback(pad, info, user_data):
     if user_data.use_frame and frame is not None:
         cv2.putText(frame, f"Labels: {', '.join(labels)}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        if user_data.close_detected_time:
-            dur = now - user_data.close_detected_time
-            cv2.putText(frame, f"Close Duration: {dur:.1f}s", (10, 60),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         user_data.set_frame(frame)
 
