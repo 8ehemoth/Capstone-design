@@ -51,3 +51,7 @@ python basic_pipelines/detection.py --input /dev/video0
 
 기존 가상환경 /home/pi/venv/pytorch_env/bin/python3
 라벨링 가상환경 /home/pi/labelme/label/bin/python3
+
+
+
+최종 실행 명령어 : python3 basic_pipelines/detection_sensor.py         --labels-json resources/eyes-labels.json         --hef-path /usr/share/hailo-models/eyes.hef         --input libcamerasrc
