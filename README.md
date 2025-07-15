@@ -1,5 +1,6 @@
 # Capstone-design
 
+https://jnwllm.be/blog/mh-z19
 
 source /home/pi/venv/pytorch_env/bin/activate
 
