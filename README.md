@@ -1,58 +1,162 @@
-# Capstone-design
+# 실시간 졸음운전 감지 및 경고 시스템
 
-https://jnwllm.be/blog/mh-z19
+Raspberry Pi 5와 Hailo-8L을 활용해 운전자의 눈 상태를 탐지하고, 센서와 경고 장치를 연동한 캡스톤디자인 프로젝트입니다.
 
-source /home/pi/venv/pytorch_env/bin/activate
+AI 모델의 학습뿐 아니라 카메라 입력, 임베디드 보드 추론, 센서 데이터 수신과 경고 출력까지 연결하는 것을 목표로 개발했습니다.
 
-우리 yolov8s 실행 코드
-rpicam-hello -t 0 --post-process-file ~/rpicam-apps/assets/hailo_yolov8_eyes.json --lores-width 640 --lores-height 640 
+- **프로젝트 기간:** 2024.09 ~ 2025.12
+- **주요 환경:** Raspberry Pi 5, Hailo-8L, Python, GStreamer, OpenCV
+- **관련 장치:** Pi Camera, MH-Z19 계열 CO₂ 센서, 부저
 
-hef 모델 있는 경로
-/usr/share/hailo-models
+> 이 저장소에는 프로젝트 개발 과정에서 사용한 추론·센서 연동 코드와 실험 버전이 포함되어 있습니다.
+> 공개된 센서 연동 코드는 Raspberry Pi–Arduino 시리얼 통신 방식이며, 최종 제작물의 Raspberry Pi 확장 헤더 기반 구성과는 차이가 있습니다.
 
-예제 코드
-python3 basic_pipelines/detection.py --labels-json /home/pi/hailo-rpi5-examples/resources/eyes-labels.json --hef-path /usr/share/hailo-models/eyes.hef --input /home/pi/hailo-rpi5-examples/test1.mp4
-python3 detection_pipeline2.py   --labels-json ../resources/eyes-labels.json   --hef-path /usr/share/hailo-models/eyes.hef
+## 개발 배경
 
+카메라로 운전자의 눈 상태를 탐지하고, 눈 감김이 일정 시간 지속되면 경고하는 시스템을 구현하고자 했습니다.
 
+학습한 모델을 PC에서 실행하는 데 그치지 않고 Raspberry Pi에서 구동하기 위해, Hailo용 모델 변환·컴파일과 추론 환경 구성을 진행했습니다. 이후 탐지 결과를 센서·경고 장치와 연결하며 실제 장치에서 동작을 확인했습니다.
 
-테스트코드
- python3 detect.py --source 0 --weights best.pt --conf 0.25
+## 담당한 작업
 
-전역 패키지 가상환경에서 참조
-python3 -m venv /home/pi/venv/pytorch_env --system-site-packages
+- 운전자 눈 상태 탐지를 위한 YOLOv8s 모델 전이학습
+- Hailo용 모델 변환·양자화·컴파일 및 HEF 생성
+- Raspberry Pi OS와 Hailo SDK·런타임 환경 구성
+- Python 패키지 의존성과 모델 입출력·라벨 설정 확인
+- 카메라 입력과 탐지 결과 시각화
+- 눈 감김 지속시간을 활용한 경고 조건 구현
+- CO₂ 센서·부저 연동 및 보드·센서의 케이스 통합
 
-파이카메라 무기한 출력
-rpicam-hello -t 0
----------------------------------------------------------------------------------------------------------------------------------------------------------
-************************
+Hailo 추론 파이프라인은 공식 예제를 활용했으며, 프로젝트에 맞는 모델·라벨 설정과 탐지 결과 처리, 센서·경고 연동 코드를 적용했습니다.
+
+## 공개 코드의 동작 구조
+
+### 영상 기반 경고
+
+1. 카메라 영상을 Hailo 추론 파이프라인에 입력합니다.
+2. 탐지 결과에서 `close` 클래스와 신뢰도를 확인합니다.
+3. 눈 감김이 시작된 시각을 기록합니다.
+4. 눈 감김이 설정 시간 이상 지속되면 경고 명령을 전송합니다.
+5. 해당 프레임에서 조건에 맞는 `close` 탐지가 없으면 감김 타이머를 초기화합니다.
+
+`detection_sensor.py`의 기본 설정은 다음과 같습니다.
+
+| 항목 | 코드상 설정 |
+| --- | --- |
+| 눈 감김 클래스 | `close` |
+| 콜백 내부 신뢰도 조건 | 0.5 초과 |
+| 눈 감김 지속시간 | 2.0초 |
+| 경고 명령 | ASCII 문자 `1` |
+| 경고 해제 명령 | ASCII 문자 `0` |
+
+위 신뢰도 조건은 콜백 내부의 추가 판정 기준입니다. 추론 파이프라인과 라벨 설정에도 별도의 필터링 조건이 있을 수 있습니다.
+
+### 센서 및 경고 장치 연동
+
+공개된 Arduino 연동 버전에서는 Raspberry Pi가 눈 상태를 판단하고, Arduino가 CO₂ 센서와 부저·진동 출력을 제어합니다.
+
+- Raspberry Pi → Arduino: 경고 활성화·해제 명령 전송
+- Arduino → Raspberry Pi: `CO2:값` 형식으로 측정값 전송
+- CO₂ 측정 주기: `final.ino` 기준 5초
+- CO₂ 경고 기준: 2000 ppm 이상
+
+CO₂ 기준값은 프로젝트에서 사용한 설정값이며, 의학적 졸음 판정 기준을 의미하지 않습니다.
+
+## 주요 파일
+
+| 파일 | 역할 |
+| --- | --- |
+| `detection_sensor.py` | Hailo 탐지 결과에서 눈 감김 지속시간을 판단하고, CO₂ 수신값과 함께 Arduino 경고 명령 처리 |
+| `final.ino` | 시리얼 명령 처리, CO₂ 주기 측정, 부저·진동 출력 제어 |
+| `integrated_code.ino` | `delay(5000)`을 사용하는 이전 센서·경고 제어 버전 |
+| `fusion_detection.py` | 탐지 결과를 Redis의 `alert` 키로 전달하는 실험 버전 |
+| `sensor_control.py` | Redis 상태를 읽어 Arduino에 경고 명령을 전송하는 실험 버전 |
+| `hailo_inference.py` | Hailo 추론·표시 파이프라인 구성 코드 |
+| `eyes-labels.json` | 눈 상태 클래스와 탐지 설정 |
+
+각 파일이 모두 동시에 실행되는 구조는 아닙니다. 시리얼 직접 연동 방식과 Redis를 이용한 분리 방식 등 개발 과정의 여러 구성이 함께 포함되어 있습니다.
+
+## 개발 과정에서 확인한 점
+
+### 1. 모델과 라벨 설정을 함께 확인해야 합니다
+
+개발 중 눈 영역이 다른 클래스명으로 표시되거나 특정 눈 상태가 탐지되지 않는 현상을 기록했습니다.
+
+임베디드 보드에서 탐지 결과를 확인할 때는 모델 파일뿐 아니라 라벨 매핑, 후처리 설정과 실행 파이프라인을 함께 점검해야 한다는 점을 배웠습니다.
+
+### 2. 한 프레임의 탐지와 지속적인 눈 감김을 구분했습니다
+
+`fusion_detection.py`는 프레임에서 `close`가 탐지되면 경고 상태를 전달하는 방식입니다.
+
+`detection_sensor.py`에서는 눈 감김 시작 시각을 기록하고, 설정 시간 이상 유지됐을 때 경고하도록 시간 조건을 추가했습니다.
+
+### 3. 센서 측정과 명령 처리를 나눴습니다
+
+`integrated_code.ino`는 반복문 끝에서 5초 동안 대기합니다.
+
+`final.ino`에서는 이 대기를 제거하고 `millis()`로 CO₂ 측정 주기를 관리하도록 구성했습니다. 이를 통해 측정 주기를 기다리는 동안에도 시리얼 명령을 확인할 수 있도록 했습니다.
+
+다만 센서 라이브러리 내부의 처리 시간까지 모두 비차단 방식으로 보장하는 구조는 아닙니다.
+
+## 실행 환경
+
+코드는 개발 당시의 Hailo Raspberry Pi 예제 환경을 기준으로 작성됐습니다.
+
+주요 의존성은 다음과 같습니다.
+
+- HailoRT 및 사용 중인 예제와 호환되는 Hailo 환경
+- GStreamer 및 Python GObject 바인딩
+- `hailo_apps_infra`
+- OpenCV·NumPy
+- pySerial
+- Redis 및 redis-py: Redis 연동 버전 사용 시
+- Arduino용 SoftwareSerial 및 코드와 호환되는 MHZ19 라이브러리
+
+실행 전 다음 항목을 확인해야 합니다.
+
+- HEF 모델 파일의 위치
+- 모델에 대응하는 라벨 JSON
+- 카메라 입력 방식
+- Arduino 시리얼 장치 경로
+- Hailo 예제와 `hailo_apps_infra` 버전
+
+`detection_sensor.py`는 `/dev/ttyACM0`, `sensor_control.py`는 `/dev/ttyUSB0`을 사용하므로 실제 연결 환경에 맞게 수정해야 합니다.
+
+또한 파일마다 `hailo_apps_infra`의 import 경로가 다릅니다. 현재 저장소만 복제해서 바로 실행되는 독립 배포 패키지로 정리된 상태는 아닙니다.
+
+## 개발 환경에서 사용한 실행 명령
+
+아래는 기존 Hailo 예제 작업 환경에서 사용한 명령입니다.
+
+`detection_sensor.py`와 라벨 파일을 해당 경로에 배치하고, 모델 파일과 카메라 입력 설정을 확인한 뒤 사용해야 합니다.
+
+```bash
 cd ~/hailo-rpi5-examples
-source setup_env.sh   
-thonny
-
-객체인식 헤일로 예제
-rpicam-hello -t 0 --post-process-file ~/rpicam-apps/assets/hailo_yolov8_inference.json --lores-width 640 --lores-height 640
-
-헤일로 공식 문서 - 가상환경 접속
-cd hailo-rpi5-examples
 source setup_env.sh
 
-==헤일로 예제 실행(우리가 학습시킨 모델)==
-python3 basic_pipelines/detection.py --labels-json resources/eyes-labels.json --hef-path /usr/share/hailo-models/eyes.hef --input rpi
+python3 basic_pipelines/detection_sensor.py \
+  --labels-json resources/eyes-labels.json \
+  --hef-path /usr/share/hailo-models/eyes.hef \
+  --input libcamerasrc
+```
 
-20250122수 프레임 30으로 매우 빠르게 실시간 탐지가 가능. 허나 눈이 바운딩 박스로 탐지가 되지만, bicycle이라고 클래스가 잡히는 오류와, close 부분이 아예 탐지되지 않는 오류가 발생함.
-rpicam-hello -t 0 --post-process-file ~/hailo-rpi5-examples/resources/hailo_yolov8_eyes.json --lores-width 640 --lores-height 640
+`--input` 값과 지원 옵션은 설치된 Hailo 예제 버전에 따라 확인이 필요합니다.
 
+## 현재 코드의 한계와 개선할 부분
 
+- 눈 감김 탐지가 없으면 눈을 뜬 경우와 미검출된 경우를 구분하지 않고 타이머를 초기화합니다.
+- CO₂ 조건과 영상 조건의 상태 유지·경고 우선순위를 더 명확하게 정리할 필요가 있습니다.
+- Raspberry Pi와 Arduino가 같은 경고 출력을 제어하는 부분은 통합된 상태 관리가 필요합니다.
+- 통신 끊김과 센서 데이터 갱신 지연에 대한 처리 보완이 필요합니다.
+- 실험 버전별 실행 환경과 의존성을 정리하고, 최종 구성에 맞는 실행 절차를 보강할 예정입니다.
 
+## 프로젝트를 통해 배운 점
 
-python basic_pipelines/get_usb_camera.py
+임베디드 시스템에서는 모델이나 개별 코드가 실행되는 것만으로 전체 기능이 완성되지 않는다는 점을 배웠습니다.
 
-python basic_pipelines/detection.py --input /dev/video0
+카메라 입력, 모델 출력, 통신 데이터와 경고 장치를 연결하면서 각 단계의 설정과 실행 결과를 함께 확인했습니다. 이 과정에서 개발 환경 구성, 디바이스 연동, 입력·출력 데이터 점검이 실제 시스템 구현에 중요한 부분임을 경험했습니다.
 
-기존 가상환경 /home/pi/venv/pytorch_env/bin/python3
-라벨링 가상환경 /home/pi/labelme/label/bin/python3
+## 참고 자료
 
-
-
-최종 실행 명령어 : python3 basic_pipelines/detection_sensor.py         --labels-json resources/eyes-labels.json         --hef-path /usr/share/hailo-models/eyes.hef         --input libcamerasrc
+- [Hailo Raspberry Pi Examples](https://github.com/hailo-ai/hailo-rpi5-examples)
+- [MH-Z19 센서 관련 참고 글](https://jnwllm.be/blog/mh-z19)
